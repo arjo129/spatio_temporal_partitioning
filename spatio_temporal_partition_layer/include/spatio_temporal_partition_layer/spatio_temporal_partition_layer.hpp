@@ -78,6 +78,8 @@ private:
   int GRADIENT_SIZE = 20;
   // Step of increasing cost per one cell in gradient
   int GRADIENT_FACTOR = 10;
+
+  std::string current_robot_;
 };
 
 }  // namespace nav2_gradient_costmap_plugin

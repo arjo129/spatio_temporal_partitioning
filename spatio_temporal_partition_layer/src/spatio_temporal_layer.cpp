@@ -46,6 +46,7 @@
 #include "nav2_costmap_2d/footprint.hpp"
 #include "rclcpp/parameter_events_filter.hpp"
 #include "rclcpp/logging.hpp"
+#include <nav2_costmap_2d/cost_values.hpp>
 
 using nav2_costmap_2d::LETHAL_OBSTACLE;
 using nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE;
@@ -68,13 +69,14 @@ SpatioTemporalPartitionLayer::SpatioTemporalPartitionLayer()
 void
 SpatioTemporalPartitionLayer::onInitialize()
 {
-  auto node = node_.lock(); 
+  auto node = node_.lock();
   declareParameter("enabled", rclcpp::ParameterValue(true));
   node->get_parameter(name_ + "." + "enabled", enabled_);
 
   need_recalculation_ = false;
   current_ = true;
-  RCLCPP_ERROR(logger_, "Initiallizing grid"); 
+  RCLCPP_ERROR(logger_, "Initiallizing grid");
+  current_robot_ = node->get_namespace();
 }
 
 // The method is called to ask the plugin: which area of costmap it needs to update.
@@ -164,9 +166,19 @@ SpatioTemporalPartitionLayer::updateCosts(
   min_j = std::max(0, min_j);
   max_i = std::min(static_cast<int>(size_x), max_i);
   max_j = std::min(static_cast<int>(size_y), max_j);
+  for (int mi = min_i; mi < max_i; mi++) {
+    for (int mj = min_j; mj < max_j; mj++) {
+      double wx, wy;
+      master_grid.mapToWorld(mi, mj, wx, wy);
 
+      /*if (wx > 10.0) {
+         auto id = master_grid.getIndex(mi, mj);
+         master_array[id] = LETHAL_OBSTACLE;
+      }*/    
+    }
+  }
   // Simply computing one-by-one cost per each cell
-  int gradient_index;
+  /*int gradient_index;
   for (int j = min_j; j < max_j; j++) {
     // Reset gradient_index each time when reaching the end of re-calculated window
     // by OY axis.
@@ -180,15 +192,12 @@ SpatioTemporalPartitionLayer::updateCosts(
       } else {
         gradient_index = 0;
       }
-      master_array[index] = cost;
+      master_array[index] = LETHAL_OBSTACLE;
     }
-  } 
+  }*/ 
 }
 
-}  // namespace nav2_gradient_costmap_plugin
+}  // namespace rmf
 
-// This is the macro allowing a nav2_gradient_costmap_plugin::GradientLayer class
-// to be registered in order to be dynamically loadable of base type nav2_costmap_2d::Layer.
-// Usually places in the end of cpp-file where the loadable class written.
 #include "pluginlib/class_list_macros.hpp"
 PLUGINLIB_EXPORT_CLASS(rmf::SpatioTemporalPartitionLayer, nav2_costmap_2d::Layer)
