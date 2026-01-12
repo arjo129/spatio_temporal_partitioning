@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'set_init = demo_world.localization_init:main'
+            'set_init = demo_world.localization_init:main',
+            'robot_client = demo_world.path_reporter:main'
         ],
     },
 )
