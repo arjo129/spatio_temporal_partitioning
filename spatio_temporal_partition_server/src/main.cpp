@@ -1,5 +1,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rmf_prototype_msgs/msg/mapf_result.hpp"
+#include "rmf_prototype_msgs/msg/mapf_trajectory.hpp"
 #include "rmf_prototype_msgs/msg/safe_zone.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -42,7 +43,7 @@ class AgentController {
 
 /// Spatio Temporal Allocation main node.
 class SpatioTemporalAllocatorNode: public rclcpp::Node {
-  public: SpatioTemporalAllocatorNode(): Node("spatio_temporal_server")
+  public: SpatioTemporalAllocatorNode(): Node("spatio_temporal_server"), recved_mapf_(false)
   {
     subscription_ = this->create_subscription<std_msgs::msg::String>(
       "registration", 10, std::bind(&SpatioTemporalAllocatorNode::robot_heartbeat, this, _1));
@@ -66,9 +67,23 @@ class SpatioTemporalAllocatorNode: public rclcpp::Node {
   }
 
   /// Callback for mapf result
-  private: void mapf_result() {
-      
+  private: void mapf_result(rmf_prototype_msgs::msg::MAPFResult::ConstSharedPtr ptr) {
+    if (recved_mapf_)
+    {
+      return;
+    }
+    for (auto t: ptr->trajectories)
+    {
+      auto a = agents_.find(t.robot);
+      if (a == agents_.end())
+      {
+        continue;
+      }
+    }  
   }
+
+  private: bool recved_mapf_;
+  private: rmf_prototype_msgs::msg::MAPFResult::ConstSharedPtr mapf_result_;
   private: std::unordered_map<std::string, AgentController> agents_;
   private: rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
 };
