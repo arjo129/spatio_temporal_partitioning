@@ -28,7 +28,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Corrosion)
 
 # Import targets defined in a package or workspace manifest `Cargo.toml` file
-corrosion_import_crate(MANIFEST_PATH mapf_post_bridge/Cargo.toml)
+corrosion_import_crate(MANIFEST_PATH src/mapf_post_bridge/Cargo.toml)
 
 install(TARGETS
   server
