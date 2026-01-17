@@ -11,6 +11,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
 find_package(pluginlib REQUIRED)
+find_package(CURL REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -44,5 +45,6 @@ target_link_libraries(${lib_name} PUBLIC
   nav2_costmap_2d::nav2_costmap_2d_core
   pluginlib::pluginlib
   rclcpp::rclcpp
+  CURL::libcurl
 )
 ament_package()
