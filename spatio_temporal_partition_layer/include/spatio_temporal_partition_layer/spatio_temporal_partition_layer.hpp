@@ -80,6 +80,9 @@ private:
   int GRADIENT_FACTOR = 10;
 
   std::string current_robot_;
+
+  double robot_x_, robot_y_;
+  bool pose_recvd_ = false;
 };
 
 }  // namespace nav2_gradient_costmap_plugin

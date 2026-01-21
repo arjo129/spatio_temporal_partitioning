@@ -46,14 +46,39 @@
 #include "nav2_costmap_2d/footprint.hpp"
 #include "rclcpp/parameter_events_filter.hpp"
 #include "rclcpp/logging.hpp"
+#include <cstdint>
+#include <exception>
 #include <nav2_costmap_2d/cost_values.hpp>
+#include <curl/curl.h>
+#include <nlohmann/json.hpp>
+#include <optional>
 
 using nav2_costmap_2d::LETHAL_OBSTACLE;
 using nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE;
 using nav2_costmap_2d::NO_INFORMATION;
+using nav2_costmap_2d::FREE_SPACE;
+
+using json = nlohmann::json;
 
 namespace rmf
 {
+
+void strip_trailing_slash(std::string& str) {
+    if (!str.empty() && str.back() == '/') {
+        str.pop_back();
+    }
+}
+
+int extract_robot_id(std::string& name) {
+  int robot_id;
+  if (sscanf(name.c_str(), "/robot%d/", &robot_id) == 1) {
+    // Successfully extracted robot_id
+  }
+  else {
+    throw std::exception();
+  }
+  return robot_id;
+}
 
 SpatioTemporalPartitionLayer::SpatioTemporalPartitionLayer()
 : last_min_x_(-std::numeric_limits<float>::max()),
@@ -77,6 +102,7 @@ SpatioTemporalPartitionLayer::onInitialize()
   current_ = true;
   RCLCPP_ERROR(logger_, "Initiallizing grid");
   current_robot_ = node->get_namespace();
+  strip_trailing_slash(current_robot_);
 }
 
 // The method is called to ask the plugin: which area of costmap it needs to update.
@@ -84,9 +110,12 @@ SpatioTemporalPartitionLayer::onInitialize()
 // and updated independently on its value.
 void
 SpatioTemporalPartitionLayer::updateBounds(
-  double /*robot_x*/, double /*robot_y*/, double /*robot_yaw*/, double * min_x,
+  double robot_x, double robot_y, double /*robot_yaw*/, double * min_x,
   double * min_y, double * max_x, double * max_y)
 {
+  robot_x_ = robot_x;
+  robot_y_ = robot_y;
+  pose_recvd_ = true;
   if (need_recalculation_) {
     last_min_x_ = *min_x;
     last_min_y_ = *min_y;
@@ -116,6 +145,68 @@ SpatioTemporalPartitionLayer::updateBounds(
   }
 }
 
+
+// Callback function to write curl response to a string
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+
+// Function to perform a CURL POST request with a JSON body
+std::string curl_post_request(const std::string& url, const json& jsonData) {
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+    struct curl_slist* headers = NULL;
+
+    std::string jsonStr = jsonData.dump();
+
+    curl = curl_easy_init();
+    if (curl) {
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+       curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+        res = curl_easy_perform(curl);
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+
+        if (res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        }
+    }
+    return readBuffer;
+}
+
+std::optional<json> retrieve_currently_allocated_space(const std::string base_server, float x, float y, std::size_t agent_id)
+{
+    
+    std::string url = base_server + "/update_pose";
+    
+    // Create a JSON object to send
+    json postData;
+    postData["agent_id"] = agent_id;
+    postData["x"] = x;
+    postData["y"] = y;
+    postData["angle"] = 0.0;
+
+    std::cout << "Making a POST request to " << url << "..." << std::endl;
+    std::string response = curl_post_request(url, postData);
+
+    if (!response.empty()) {
+        std::cout << "Response from " << url << ":\n" << response << std::endl;
+        return json::parse(response);
+    } else {
+        std::cout << "Response from " << url << " was empty." << std::endl;
+        return std::nullopt;
+    }
+}
+
+
 // The method is called when footprint was changed.
 // Here it just resets need_recalculation_ variable.
 void
@@ -141,7 +232,41 @@ SpatioTemporalPartitionLayer::updateCosts(
   if (!enabled_) {
     return;
   }
+  if (!pose_recvd_) {
+    RCLCPP_ERROR(logger_, "No pose received");
+    return;
+  }
+  auto allocated_space = retrieve_currently_allocated_space("http://127.0.0.1:3000", robot_x_, robot_y_, extract_robot_id(current_robot_));
+  if (!allocated_space.has_value())
+  {
+    RCLCPP_ERROR(logger_, "Could not reach server");
+    return;
+  }
 
+
+  std::unordered_set<std::size_t> safe_spots;
+  float cell_size = allocated_space.value()["cell_size"];
+  RCLCPP_INFO(logger_, "Cell size is %f", cell_size);
+  for(auto c: allocated_space.value()["allocated_free_space"])
+  {
+    float x = c[0];
+    float y = c[1];
+    float bmin_x = x - cell_size/2;
+    float bmin_y = y - cell_size/2;
+    float bmax_x = x + cell_size/2;
+    float bmax_y = y + cell_size/2;
+    
+    unsigned int m_min_x,m_min_y, m_max_x, m_max_y;
+    master_grid.worldToMap(bmin_x, bmin_y, m_min_x, m_min_y);
+    master_grid.worldToMap(bmax_x, bmax_y, m_max_x, m_max_y);       
+    for (auto bx = m_min_x; bx <= m_max_x; bx++) {
+      for (auto by = m_min_y; by <= m_max_y; by++) {
+        auto index = master_grid.getIndex(bx, by);
+        safe_spots.insert(index);
+      } 
+    }
+  }
+  
   // master_array - is a direct pointer to the resulting master_grid.
   // master_grid - is a resulting costmap combined from all layers.
   // By using this pointer all layers will be overwritten!
@@ -170,31 +295,14 @@ SpatioTemporalPartitionLayer::updateCosts(
     for (int mj = min_j; mj < max_j; mj++) {
       double wx, wy;
       master_grid.mapToWorld(mi, mj, wx, wy);
-
-      /*if (wx > 10.0) {
-         auto id = master_grid.getIndex(mi, mj);
-         master_array[id] = LETHAL_OBSTACLE;
-      }*/    
+      auto id = master_grid.getIndex(mi, mj);
+      if (safe_spots.count(id) != 0) {
+        continue;
+      }
+      master_array[id] = LETHAL_OBSTACLE;
     }
   }
-  // Simply computing one-by-one cost per each cell
-  /*int gradient_index;
-  for (int j = min_j; j < max_j; j++) {
-    // Reset gradient_index each time when reaching the end of re-calculated window
-    // by OY axis.
-    gradient_index = 0;
-    for (int i = min_i; i < max_i; i++) {
-      int index = master_grid.getIndex(i, j);
-      // setting the gradient cost
-      unsigned char cost = (LETHAL_OBSTACLE - gradient_index*GRADIENT_FACTOR)%255;
-      if (gradient_index <= GRADIENT_SIZE) {
-        gradient_index++;
-      } else {
-        gradient_index = 0;
-      }
-      master_array[index] = LETHAL_OBSTACLE;
-    }
-  }*/ 
+
 }
 
 }  // namespace rmf
