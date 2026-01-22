@@ -147,12 +147,23 @@ SpatioTemporalPartitionLayer::updateBounds(
 }
 
 
+
 // Callback function to write curl response to a string
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
     userp->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
 
+std::string get_base_uri()
+{
+  const char* env = std::getenv("SP_SERVER_BASE");
+
+  if (env == nullptr) {
+    return "http://127.0.0.1:3000";
+  }
+
+  return env;
+}
 
 // Function to perform a CURL POST request with a JSON body
 std::string curl_post_request(const std::string& url, const json& jsonData) {
@@ -237,10 +248,10 @@ SpatioTemporalPartitionLayer::updateCosts(
     RCLCPP_ERROR(logger_, "No pose received");
     return;
   }
-  auto allocated_space = retrieve_currently_allocated_space("http://127.0.0.1:3000", robot_x_, robot_y_, extract_robot_id(current_robot_));
+  auto allocated_space = retrieve_currently_allocated_space(get_base_uri(), robot_x_, robot_y_, extract_robot_id(current_robot_));
   if (!allocated_space.has_value())
   {
-    RCLCPP_ERROR(logger_, "Could not reach server");
+    RCLCPP_ERROR(logger_, "Could not reach server %s", get_base_uri().c_str());
     return;
   }
 

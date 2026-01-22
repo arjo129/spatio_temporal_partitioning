@@ -1,47 +1,75 @@
 from nav2_simple_commander.robot_navigator import BasicNavigator
 import rclpy
 from rclpy.node import Node
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped
+from rclpy.qos import QoSProfile, DurabilityPolicy
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from geometry_msgs.msg import Point, PoseStamped
 from std_msgs.msg import String
 
+"""
+This is in charge of telling where the robot should head next.
+It works by registering the robot to the /registration topic
+and then it 
+"""
 class RobotController(Node):
     def __init__(self):
-        super().__init__('pose_subscriber')
-        #self.subscription = self.create_subscription(
-        #    Odometry,
-        #    '/odom',
-        #    self.odom_callback,
-        #    10)
-        #self.goal_position = self.create_subscription(
-        #    PoseStamped,
-        #    'target_pose',
-        #    self.on_command,
-        #)
-        self.pub = self.create_publisher(String, '/registration', 10)
+        super().__init__('robot_controller')
+        self.registration_pub = self.create_publisher(String, '/registration', 10)
         #self.subscription  # prevent unused variable warning
         self.get_logger().info('Pose subscriber node started')
         self.timer = self.create_timer(1.0, self.heartbeat)
+        self.nav = BasicNavigator(namespace=self.get_namespace())
+        #self.nav.waitUntilNav2Active()
+        self.get_logger().info("NAV2 now ACTIVE!")
+        qos_profile = QoSProfile(
+            depth=1, # Keep last 10 messages
+            durability=DurabilityPolicy.TRANSIENT_LOCAL
+        )
+        self.reentrant_group = ReentrantCallbackGroup()
+        self.sub = self.create_subscription(Point, 'global_costmap/next_goal', self.next_goal_recv, qos_profile, callback_group=self.reentrant_group)
+        self.prev_point = None
+        self.sub
 
     def heartbeat(self):
         ns = self.get_namespace()
-        self.pub.publish(String(data=ns))
+        self.registration_pub.publish(String(data=ns))
 
-    def odom_callback(self, msg):
-        # Extracting position (x, y, z)
-        position = msg.pose.pose.position
-        # Extracting orientation (quaternion: x, y, z, w)
-        orientation = msg.pose.pose.orientation
-        self.get_logger().info(
-            f"Robot Pose: Position (x: {position.x:.2f}, y: {position.y:.2f}, z: {position.z:.2f}), "
-            f"Orientation (x: {orientation.x:.2f}, y: {orientation.y:.2f}, z: {orientation.z:.2f}, w: {orientation.w:.2f})"
-        )
+    def next_goal_recv(self, point: Point):
+        self.get_logger().info(f"Received next goal as {point}")
+        if self.prev_point is None:
+            self.get_logger().info("Setting new nav2 goal")
+            pose = PoseStamped()
+            pose.pose.position.x = point.x
+            pose.pose.position.y = point.y
+            pose.pose.orientation.w = 1.0
+            pose.header.frame_id = "map"
+            self.nav.goToPose(pose)
+            self.prev_point = point
+            return
+        dist = (self.prev_point.x - point.x)**2 + (self.prev_point.y - point.y)**2
 
+        if dist < 1:
+            self.get_logger().info("Prev goal near current goal, doing nothing")
+            return
+
+        self.get_logger().info("Setting new nav2 goal")
+        pose = PoseStamped()
+        pose.pose.position.x = point.x
+        pose.pose.position.y = point.y
+        pose.pose.orientation.w = 1.0
+        pose.header.frame_id = "map"
+        self.nav.goToPose(pose)
+        self.prev_point = point
+        return
 
 def main(args=None):
     rclpy.init(args=args)
     pose_subscriber = RobotController()
-    rclpy.spin(pose_subscriber)
+    #pose_subscriber.nav.waitUntilNav2Active()
+    executor = MultiThreadedExecutor()
+    executor.add_node(pose_subscriber)
+    executor.spin()
     pose_subscriber.destroy_node()
     rclpy.shutdown()
 
