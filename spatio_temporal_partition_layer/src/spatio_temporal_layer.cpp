@@ -97,7 +97,8 @@ SpatioTemporalPartitionLayer::onInitialize()
   auto node = node_.lock();
   declareParameter("enabled", rclcpp::ParameterValue(true));
   node->get_parameter(name_ + "." + "enabled", enabled_);
-
+  publisher_ = node->create_publisher<geometry_msgs::msg::Point>("next_goal",
+    rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
   need_recalculation_ = false;
   current_ = true;
   RCLCPP_ERROR(logger_, "Initiallizing grid");
@@ -243,6 +244,10 @@ SpatioTemporalPartitionLayer::updateCosts(
     return;
   }
 
+  geometry_msgs::msg::Point point;
+  point.x = allocated_space.value()["next_goal"][0];
+  point.y = allocated_space.value()["next_goal"][1];
+  publisher_->publish(point);
 
   std::unordered_set<std::size_t> safe_spots;
   float cell_size = allocated_space.value()["cell_size"];
