@@ -182,7 +182,7 @@ std::string curl_post_request(const std::string& url, const json& jsonData) {
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-       curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
         res = curl_easy_perform(curl);
         curl_easy_cleanup(curl);
         curl_slist_free_all(headers);
@@ -259,6 +259,13 @@ SpatioTemporalPartitionLayer::updateCosts(
   point.x = allocated_space.value()["next_goal"][0];
   point.y = allocated_space.value()["next_goal"][1];
   publisher_->publish(point);
+
+  auto path = allocated_space.value()["remaining_traj"];
+  for (auto tx: path) {
+    float ax = tx[0];
+    float ay = tx[1];
+    RCLCPP_INFO(logger_, "Logger (%f,%f)",  ax, ay);
+  }
 
   std::unordered_set<std::size_t> safe_spots;
   float cell_size = allocated_space.value()["cell_size"];

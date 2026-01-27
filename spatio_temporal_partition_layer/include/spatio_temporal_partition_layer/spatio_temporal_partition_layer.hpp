@@ -39,6 +39,7 @@
 #define SPATIO_TEMPORAL_LAYER_HPP_
 
 #include "geometry_msgs/msg/point.hpp"
+#include "geometry_msgs/msg/pose_array.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "nav2_costmap_2d/layer.hpp"
 #include "nav2_costmap_2d/layered_costmap.hpp"
@@ -85,7 +86,7 @@ private:
   double robot_x_, robot_y_;
   bool pose_recvd_ = false;
   rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr publisher_;
-  
+  rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr path_publisher_;
 };
 
 }  // namespace nav2_gradient_costmap_plugin
