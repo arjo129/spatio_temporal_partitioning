@@ -5,11 +5,12 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
-from geometry_msgs.msg import Point, PoseStamped
+from geometry_msgs.msg import Point, PoseStamped, PoseArray
 from std_msgs.msg import String
 import time
 from nav_msgs.msg import OccupancyGrid
 from nav2_msgs.msg import Costmap
+
 import numpy as np
 
 
@@ -93,11 +94,22 @@ class RobotController(Node):
         self.sub = self.create_subscription(Point, 'global_costmap/next_goal', self.next_goal_recv, qos_profile, callback_group=self.reentrant_group)
         self.prev_point = None
         self.sub
+        self.sub1 = self.create_subscription(PoseArray, 'remaining_path')
+        self.sub1
 
     def heartbeat(self):
         ns = self.get_namespace()
         self.registration_pub.publish(String(data=ns))
 
+    def path_recv(self, msg: PoseArray):
+        print("Path received")
+        gcp = PyCostmap2D(costmap_to_occupancy_grid(self.nav.getGlobalCostmap()))
+        #print(f"{gcp}")
+        lcp = PyCostmap2D(costmap_to_occupancy_grid(self.nav.getLocalCostmap()))
+        for p in pose_array:
+            gcp.worldToMapValidated()
+
+                
     def next_goal_recv(self, point: Point):
         self.get_logger().info(f"Received next goal as {point}")
         gcp = PyCostmap2D(costmap_to_occupancy_grid(self.nav.getGlobalCostmap()))
