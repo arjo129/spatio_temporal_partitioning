@@ -40,6 +40,7 @@
  * Reference tutorial:
  * https://navigation.ros.org/tutorials/docs/writing_new_costmap2d_plugin.html
  *********************************************************************/
+#include "geometry_msgs/msg/pose_array.hpp"
 #include "spatio_temporal_partition_layer/spatio_temporal_partition_layer.hpp"
 
 #include "nav2_costmap_2d/costmap_math.hpp"
@@ -99,6 +100,9 @@ SpatioTemporalPartitionLayer::onInitialize()
   node->get_parameter(name_ + "." + "enabled", enabled_);
   publisher_ = node->create_publisher<geometry_msgs::msg::Point>("next_goal",
     rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+  path_publisher_ = node->create_publisher<geometry_msgs::msg::PoseArray>("remaining_path",
+    rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+  
   need_recalculation_ = false;
   current_ = true;
   RCLCPP_ERROR(logger_, "Initiallizing grid");
@@ -206,11 +210,9 @@ std::optional<json> retrieve_currently_allocated_space(const std::string base_se
     postData["y"] = y;
     postData["angle"] = 0.0;
 
-    std::cout << "Making a POST request to " << url << "..." << std::endl;
     std::string response = curl_post_request(url, postData);
 
     if (!response.empty()) {
-        std::cout << "Response from " << url << ":\n" << response << std::endl;
         return json::parse(response);
     } else {
         std::cout << "Response from " << url << " was empty." << std::endl;
@@ -261,15 +263,21 @@ SpatioTemporalPartitionLayer::updateCosts(
   publisher_->publish(point);
 
   auto path = allocated_space.value()["remaining_traj"];
+
+  geometry_msgs::msg::PoseArray arr;
+  
   for (auto tx: path) {
     float ax = tx[0];
     float ay = tx[1];
-    RCLCPP_INFO(logger_, "Logger (%f,%f)",  ax, ay);
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = ax;
+    pose.position.y = ay; 
+    arr.poses.push_back(pose);
   }
+  path_publisher_->publish(arr);
 
   std::unordered_set<std::size_t> safe_spots;
   float cell_size = allocated_space.value()["cell_size"];
-  RCLCPP_INFO(logger_, "Cell size is %f", cell_size);
   for(auto c: allocated_space.value()["allocated_free_space"])
   {
     float x = c[0];

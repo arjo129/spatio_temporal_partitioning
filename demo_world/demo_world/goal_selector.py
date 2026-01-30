@@ -1,11 +1,16 @@
 from geometry_msgs.msg import PoseArray, PoseStamped
 from nav2_simple_commander.robot_navigator import BasicNavigator
 from nav2_simple_commander.costmap_2d import PyCostmap2D
+from nav2_msgs.action import ComputePathToPose
+from rclpy.action import ActionClient
+
 
 from nav2_msgs.msg import Costmap
 from nav_msgs.msg import OccupancyGrid
 
 import numpy as np
+
+import rclpy
 
 
 def costmap_to_occupancy_grid(cost_msg: Costmap) -> OccupancyGrid:
@@ -68,7 +73,37 @@ def costmap_to_occupancy_grid(cost_msg: Costmap) -> OccupancyGrid:
 class AdaptiveGoalSelector:
     def __init__(self, navigator: BasicNavigator):
         self.nav = navigator
-        self.lethal_threshold = 250
+        self.lethal_threshold = 100
+
+    def get_path_hack(self, start, end):
+        #self.nav.clearPreviousState()
+        goal_msg = ComputePathToPose.Goal()
+        goal_msg.start = start
+        goal_msg.goal = end
+        goal_msg.planner_id = ""
+        goal_msg.use_start = False
+
+        self.nav.info('Getting path...')
+        send_goal_future = self.nav.compute_path_to_pose_client.send_goal_async(goal_msg)
+        rclpy.spin_until_future_complete(self.nav, send_goal_future)
+        self.nav.goal_handle = send_goal_future.result()
+
+        if not self.nav.goal_handle or not self.nav.goal_handle.accepted:
+            self.nav.error('Get path was rejected!')
+            self.nav.status = self.nav.GoalStatus.STATUS_UNKNOWN
+            result = ComputePathToPose.Result()
+            result.error_code = ComputePathToPose.Result.UNKNOWN
+            result.error_msg = 'Get path was rejected'
+            return None
+        self.nav.result_future = self.nav.goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self.nav, self.nav.result_future)
+        if self.nav.result_future.result() is None:
+            return None
+        
+        self.status = self.nav.result_future.result().status  # type: ignore[union-attr]
+
+        return self.nav.result_future.result().result
+        
 
     def find_next_best_goal(self, pose_array: PoseArray, interpolation_steps=5):
         """
@@ -84,33 +119,36 @@ class AdaptiveGoalSelector:
         
         # 3. Filter points that are physically within the costmap window
         valid_indices = [
-            p for p in interpolated_path 
+            id for id, p in enumerate(interpolated_path) 
             if self._is_in_costmap_bounds(p, local_costmap, global_costmap)
         ]
 
+        """"
         low = 0
         high = len(valid_indices) - 1
         best_idx = -1
 
         while low <= high:
             mid = (low + high) // 2
-            candidate_pose = full_path[valid_indices[mid]]
+            candidate_pose = interpolated_path[valid_indices[mid]]
 
             # Quick check: Is the point itself in a wall?
-            if self._get_cost(candidate_pose, local_costmap, global_costmap) >= self.LETHAL_COST:
+            if self._get_cost(candidate_pose, local_costmap, global_costmap) >= self.lethal_threshold:
                 # If point is lethal, everything beyond it is likely unreachable
                 high = mid - 1
                 continue
 
             # Heavy check: Can Nav2 actually plan a path to this point?
-            path = self.nav.getPath(self.nav.getCurrentPose(), candidate_pose)
-            if path and self.nav.isPathValid(path):
+            path = self.get_path_hack(full_path[0], candidate_pose)
+            print(path)
+            if path :
                 best_idx = mid  # This is reachable, try to find something further
                 low = mid + 1
             else:
                 high = mid - 1
+                """
 
-        return full_path[valid_indices[best_idx]] if best_idx != -1 else None
+        return interpolated_path[valid_indices[-1]]
     
             
     def _interpolate_path(self, path, steps):
@@ -129,20 +167,24 @@ class AdaptiveGoalSelector:
                 new_path.append(interp_pose)
         return new_path
 
-    def _is_in_costmap_bounds(self, pose, costmap, global_costmap):
+    def _is_in_costmap_bounds(self, pose: PoseStamped, costmap, global_costmap):
         # Logic to check if pose.x/y is within costmap.info.origin and dimensions
         #ax, ay = costmap.worldToMapValidated(pose.x, pose.y)
-        bx, by = global_costmap.worldToMapValidated(pose.x, pose.y)
+        x = pose.pose.position.x
+        y = pose.pose.position.y
+        bx, by = global_costmap.worldToMapValidated(x, y)
         cost = global_costmap.getCostXY(bx,by)
-        return cost < 100
+        return cost < 90
 
     def _get_cost(self, pose, costmap, global_costmap):
         # Logic to extract cost from the OccupancyGrid data array
-        bx, by = global_costmap.worldToMapValidated(pose.x, pose.y)
+        x = pose.pose.position.x
+        y = pose.pose.position.y
+        bx, by = global_costmap.worldToMapValidated(x, y)
         cost = global_costmap.getCostXY(bx, by)
-        lx, ly = costmap.worldToMapValidated(pose.x, pose.y)
-        cost2 = costmap.getCostXY(lx, ly)
-        return max(cost, cost2)
+        lx, ly = costmap.worldToMapValidated(x, y)
+        #cost2 = costmap.getCostXY(lx, ly)
+        return cost #max(cost, cost2)
 
     def _pose_array_to_list(self, pose_array):
         path_list = []
