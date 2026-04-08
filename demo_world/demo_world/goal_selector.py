@@ -113,6 +113,8 @@ class AdaptiveGoalSelector:
         local_costmap = PyCostmap2D(costmap_to_occupancy_grid(self.nav.getLocalCostmap()))
         # 1. Convert PoseArray to a list of PoseStamped for Nav2 compatibility
         full_path = self._pose_array_to_list(pose_array)
+
+        my_pose = pose_array.poses[0]
         
         # 2. Interpolate the path to ensure no gaps in costmap checks
         interpolated_path = self._interpolate_path(full_path, interpolation_steps)
@@ -148,7 +150,21 @@ class AdaptiveGoalSelector:
                 high = mid - 1
                 """
 
-        return interpolated_path[valid_indices[-1]]
+        # Farthest goal heuristic
+        mx = my_pose.position.x
+        my = my_pose.position.y
+        max_idx = -1
+        max_val = 0
+        for index in valid_indices:
+            kx = interpolated_path[index].pose.position.x
+            ky = interpolated_path[index].pose.position.y
+
+            dist = (kx - mx)**2 + (ky - my)**2
+            if dist > max_val:
+                max_val = dist
+                max_idx = index
+
+        return interpolated_path[max_idx]
     
             
     def _interpolate_path(self, path, steps):

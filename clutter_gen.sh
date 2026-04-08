@@ -14,7 +14,7 @@ fi
 N_CUBES=$1
 
 echo "Spawning ${N_CUBES} cubes..."
-
+touch clutter.csv
 for i in $(seq 1 $N_CUBES);
 do
     MODEL_NAME="random_box_${i}"
@@ -25,8 +25,9 @@ do
     POSE="${X_POS} ${Y_POS} 0 0 0 0"
 
     # Using single quotes for attributes is valid in XML and simplifies quoting in bash
-    SDF_CONTENT="<sdf version='1.6'><model name='${MODEL_NAME}'><pose>${POSE}</pose><static>true</static><link name='link'><visual name='v'><geometry><box><size>0.2 0.2 1</size></box></geometry></visual><collision name='c'><geometry><box><size>1 1 1</size></box></geometry></collision></link></model></sdf>"
+    SDF_CONTENT="<sdf version='1.6'><model name='${MODEL_NAME}'><pose>${POSE}</pose><static>true</static><link name='link'><visual name='v'><geometry><box><size>0.2 0.2 1</size></box></geometry></visual><collision name='c'><geometry><box><size>0.2 0.2 1</size></box></geometry></collision></link></model></sdf>"
 
+    echo $POSE >> clutter.csv
     # Spawn the model in Gazebo using the /world/warehouse/create service
     gz service -s /world/warehouse/create \
       --reqtype gz.msgs.EntityFactory \
