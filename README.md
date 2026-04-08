@@ -1,7 +1,7 @@
 # Spatio-Temporal Partitioning Demo
 
 
-I think NAV2 in jazzy should work. Although if we use the simple_nav api I rewrote 
+I think NAV2 in jazzy should work. Although if we use the simple_nav api in rolling I rewrote 
 the nav2 simple nav for rolling and may be incompatible with this.
 
 This demo contains the client code for the Spatio-Temporal allocation. To get 
