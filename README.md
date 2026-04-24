@@ -120,6 +120,15 @@ Alternatively, use the provided script to generate multiple obstacles:
 ./clutter_gen.sh
 ```
 
+## Deploying on real robots
+
+By default the rest server runs on port 3000 on localhost. If youd like to change this you can use the environment variable
+```bash
+export SP_SERVER_BASE="www.your-fleet-server.com:8443" # Note do not terminate with "/"
+```
+This will allow you to deploy this to nav2 robots without a problem.
+
+
 ## Project Structure
 
 ```
