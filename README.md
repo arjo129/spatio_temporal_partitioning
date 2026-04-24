@@ -30,7 +30,7 @@ The following GIFs show multi-robot navigation demonstrations:
 
 *Figure 2: Robot trajectory replanning when obstacles are introduced (dynamic rerouting).*
 
-Notice how there is no need to trigger a replan despite the introduction of new obstacle directly in the path. The spatio-temporal allocation takes care of it.
+Notice how there is no need to trigger a replan despite the introduction of new obstacle directly in the path. The spatio-temporal allocation ensures that any detour remains safe.
 
 ## Requirements
 
