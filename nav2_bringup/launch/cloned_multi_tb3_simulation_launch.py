@@ -211,16 +211,16 @@ def generate_launch_description():
                       arguments=[str(init_pose['x']), str(init_pose['y']), str(init_pose['yaw'])],
                       namespace=robot_name
                   ))
-        ld.add_action(Node(
-                          package="demo_world",
-                          executable="robot_client",
-                          namespace=robot_name
-                      ))
-        ld.add_action(Node(
-                          package="demo_world",
-                          executable="path_vis",
-                          namespace=robot_name
-                      ))
+        # ld.add_action(Node(
+        #                   package="demo_world",
+        #                   executable="robot_client",
+        #                   namespace=robot_name
+        #               ))
+        # ld.add_action(Node(
+        #                   package="demo_world",
+        #                   executable="path_vis",
+        #                   namespace=robot_name
+        #               ))
 
     # Add the actions to start gazebo, robots and simulations
     ld.add_action(world_sdf_xacro)

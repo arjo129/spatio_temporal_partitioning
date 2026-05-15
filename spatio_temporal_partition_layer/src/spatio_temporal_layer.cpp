@@ -98,14 +98,12 @@ SpatioTemporalPartitionLayer::onInitialize()
   auto node = node_.lock();
   declareParameter("enabled", rclcpp::ParameterValue(true));
   node->get_parameter(name_ + "." + "enabled", enabled_);
-  publisher_ = node->create_publisher<geometry_msgs::msg::Point>("next_goal",
-    rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
-  path_publisher_ = node->create_publisher<geometry_msgs::msg::PoseArray>("remaining_path",
-    rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+  costmap_sub_ = node->create_subscription<nav2_msgs::msg::Costmap>("plan/costmap", 10, 
+    std::bind(&SpatioTemporalPartitionLayer::costmap_cb, this, std::placeholders::_1));
   
   need_recalculation_ = false;
   current_ = true;
-  RCLCPP_ERROR(logger_, "Initiallizing grid");
+  RCLCPP_ERROR(logger_, "Initializing grid");
   current_robot_ = node->get_namespace();
   strip_trailing_slash(current_robot_);
 }
@@ -118,6 +116,12 @@ SpatioTemporalPartitionLayer::updateBounds(
   double robot_x, double robot_y, double /*robot_yaw*/, double * min_x,
   double * min_y, double * max_x, double * max_y)
 {
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!costmap_msg_ || costmap_msg_->data.empty()) {
+    return;
+  }
+
   robot_x_ = robot_x;
   robot_y_ = robot_y;
   pose_recvd_ = true;
@@ -150,7 +154,10 @@ SpatioTemporalPartitionLayer::updateBounds(
   }
 }
 
-
+void SpatioTemporalPartitionLayer::costmap_cb(nav2_msgs::msg::Costmap::SharedPtr msg) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  costmap_msg_ = msg;
+}
 
 // Callback function to write curl response to a string
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
@@ -250,90 +257,48 @@ SpatioTemporalPartitionLayer::updateCosts(
     RCLCPP_ERROR(logger_, "No pose received");
     return;
   }
-  auto allocated_space = retrieve_currently_allocated_space(get_base_uri(), robot_x_, robot_y_, extract_robot_id(current_robot_));
-  if (!allocated_space.has_value())
-  {
-    RCLCPP_ERROR(logger_, "Could not reach server %s", get_base_uri().c_str());
+
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!costmap_msg_) {
+    RCLCPP_WARN(logger_, "No costmap message received yet");
     return;
   }
 
-  geometry_msgs::msg::Point point;
-  point.x = allocated_space.value()["next_goal"][0];
-  point.y = allocated_space.value()["next_goal"][1];
-  publisher_->publish(point);
-
-  auto path = allocated_space.value()["remaining_traj"];
-
-  geometry_msgs::msg::PoseArray arr;
-  
-  for (auto tx: path) {
-    float ax = tx[0];
-    float ay = tx[1];
-    geometry_msgs::msg::Pose pose;
-    pose.position.x = ax;
-    pose.position.y = ay; 
-    arr.poses.push_back(pose);
+  if (costmap_msg_->data.empty()) {
+    RCLCPP_WARN(logger_, "Costmap data is empty");
+    return;
   }
-  path_publisher_->publish(arr);
 
-  std::unordered_set<std::size_t> safe_spots;
-  float cell_size = allocated_space.value()["cell_size"];
-  for(auto c: allocated_space.value()["allocated_free_space"])
-  {
-    float x = c[0];
-    float y = c[1];
-    float bmin_x = x - cell_size/2;
-    float bmin_y = y - cell_size/2;
-    float bmax_x = x + cell_size/2;
-    float bmax_y = y + cell_size/2;
-    
-    unsigned int m_min_x,m_min_y, m_max_x, m_max_y;
-    master_grid.worldToMap(bmin_x, bmin_y, m_min_x, m_min_y);
-    master_grid.worldToMap(bmax_x, bmax_y, m_max_x, m_max_y);       
-    for (auto bx = m_min_x; bx <= m_max_x; bx++) {
-      for (auto by = m_min_y; by <= m_max_y; by++) {
-        auto index = master_grid.getIndex(bx, by);
-        safe_spots.insert(index);
-      } 
-    }
-  }
-  
-  // master_array - is a direct pointer to the resulting master_grid.
-  // master_grid - is a resulting costmap combined from all layers.
-  // By using this pointer all layers will be overwritten!
-  // To work with costmap layer and merge it with other costmap layers,
-  // please use costmap_ pointer instead (this is pointer to current
-  // costmap layer grid) and then call one of updates methods:
-  // - updateWithAddition()
-  // - updateWithMax()
-  // - updateWithOverwrite()
-  // - updateWithTrueOverwrite()
-  // In this case using master_array pointer is equal to modifying local costmap_
-  // pointer and then calling updateWithTrueOverwrite():
-  unsigned char * master_array = master_grid.getCharMap();
-  unsigned int size_x = master_grid.getSizeInCellsX(), size_y = master_grid.getSizeInCellsY();
+  const auto & costmap = costmap_msg_->metadata;
+  for (int j = min_j; j < max_j; ++j) {
+    for (int i = min_i; i < max_i; ++i) {
 
-  // {min_i, min_j} - {max_i, max_j} - are update-window coordinates.
-  // These variables are used to update the costmap only within this window
-  // avoiding the updates of whole area.
-  //
-  // Fixing window coordinates with map size if necessary.
-  min_i = std::max(0, min_i);
-  min_j = std::max(0, min_j);
-  max_i = std::min(static_cast<int>(size_x), max_i);
-  max_j = std::min(static_cast<int>(size_y), max_j);
-  for (int mi = min_i; mi < max_i; mi++) {
-    for (int mj = min_j; mj < max_j; mj++) {
-      double wx, wy;
-      master_grid.mapToWorld(mi, mj, wx, wy);
-      auto id = master_grid.getIndex(mi, mj);
-      if (safe_spots.count(id) != 0) {
-        continue;
+      double world_x, world_y;
+      master_grid.mapToWorld(i, j, world_x, world_y);
+      int costmap_i = std::floor((world_x - costmap.origin.position.x) / costmap.resolution);
+      int costmap_j = std::floor((world_y - costmap.origin.position.y) / costmap.resolution);
+
+      if (costmap_i >= 0 && costmap_i < static_cast<int>(costmap.size_x) &&
+          costmap_j >= 0 && costmap_j < static_cast<int>(costmap.size_y)) 
+      {
+        unsigned int costmap_idx = costmap_j * costmap.size_x + costmap_i;
+        if (costmap_idx >= costmap_msg_->data.size()) {
+          RCLCPP_WARN(logger_, "Costmap index %u out of bounds (data size: %zu)", 
+                     costmap_idx, costmap_msg_->data.size());
+          continue;
+        }
+
+        uint8_t costmap_cost = costmap_msg_->data[costmap_idx];
+        if (costmap_cost == nav2_costmap_2d::NO_INFORMATION) {
+          continue;
+        }
+        uint8_t old_cost = master_grid.getCost(i, j);
+        if (old_cost == nav2_costmap_2d::NO_INFORMATION || old_cost < costmap_cost) {
+          master_grid.setCost(i, j, costmap_cost);
+        }
       }
-      master_array[id] = LETHAL_OBSTACLE;
     }
   }
-
 }
 
 }  // namespace rmf
